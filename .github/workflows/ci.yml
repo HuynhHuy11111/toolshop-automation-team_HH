@@ -1,0 +1,85 @@
+
+name: Team CI
+
+on:
+  # Trigger 1: Push to main
+  push:
+    branches:
+      - main
+
+  # Trigger 2: Pull Request
+  pull_request:
+    branches:
+      - main
+
+  # Trigger 3: Manual execution
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_URL: http://localhost:4200
+  API_URL: http://localhost:8091
+  GITHUB_API_URL: https://api.github.com
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  test:
+    name: test (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser:
+          - chromium
+          - firefox
+          - webkit
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # 3. Install Python dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Install Playwright browser
+      - name: Install browser
+        run: playwright install --with-deps ${{ matrix.browser }}
+
+      # 5. Start Toolshop, seed database and wait for services
+      - name: Start Toolshop
+        run: bash toolshop/start.sh
+
+      # 6. Run the FULL test suite
+      - name: Run all tests
+        run: >
+          pytest
+          --browser=${{ matrix.browser }}
+          -n 2
+          --reruns 1
+          --tracing=retain-on-failure
+          --screenshot=only-on-failure
+          --html=report.html
+          --self-contained-html
+
+      # 7. Upload report and trace
+      - name: Upload report and traces
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.browser }}
+          path: |
+            report.html
+            test-results/
+          retention-days: 7
